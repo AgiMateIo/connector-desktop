@@ -43,6 +43,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# The backend rate-limits triggers per connection: 120/min with a burst of
+# 120 and an even refill of 2/s (InboundRateLimiter). Three attempts over ~3s
+# cannot outlast a per-minute bucket, so a burst would lose events. This
+# budget covers at least a minute of refill (8 attempts, 2s..30s backoff).
+TRIGGER_RETRY_CONFIG = RetryConfig(
+    max_attempts=8, initial_delay=2.0, max_delay=30.0
+)
+
 
 class ClientHandler(ClientEventHandler):
     """Handler for Centrifugo client events."""
@@ -245,13 +253,8 @@ class ServerClient:
             )
         return self._http_session
 
-    @retry_async(RetryConfig(max_attempts=3, initial_delay=1.0))
-    async def _send_post_with_retry(self, url: str, data: dict) -> tuple[int, str]:
-        """Internal method that performs HTTP POST with retry logic.
-
-        Returns:
-            Tuple of (status_code, response_body_text).
-        """
+    async def _post_json_once(self, url: str, data: dict) -> tuple[int, str]:
+        """Perform one JSON POST; raise for errors the retry layer should see."""
         session = await self._ensure_http_session()
         timeout = aiohttp.ClientTimeout(total=self._http_timeout)
         async with session.post(url, json=data, timeout=timeout) as response:
@@ -260,6 +263,20 @@ class ServerClient:
                 response.raise_for_status()
             body = await response.text()
             return response.status, body
+
+    @retry_async(RetryConfig(max_attempts=3, initial_delay=1.0))
+    async def _send_post_with_retry(self, url: str, data: dict) -> tuple[int, str]:
+        """Internal method that performs HTTP POST with retry logic.
+
+        Returns:
+            Tuple of (status_code, response_body_text).
+        """
+        return await self._post_json_once(url, data)
+
+    @retry_async(TRIGGER_RETRY_CONFIG)
+    async def _send_trigger_with_retry(self, url: str, data: dict) -> tuple[int, str]:
+        """POST a trigger, waiting out the backend's per-minute rate limit."""
+        return await self._post_json_once(url, data)
 
     async def send_trigger(self, payload: TriggerPayload) -> bool:
         """
@@ -278,7 +295,7 @@ class ServerClient:
         url = f"{self._server_url}{ENDPOINT_DEVICE_TRIGGER}"
 
         try:
-            status, body = await self._send_post_with_retry(url, payload.to_dict())
+            status, body = await self._send_trigger_with_retry(url, payload.to_dict())
             if status == 200:
                 try:
                     data = json.loads(body)

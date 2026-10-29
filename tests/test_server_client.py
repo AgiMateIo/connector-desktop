@@ -343,7 +343,8 @@ class TestHTTPTriggers:
                     body="Server error"
                 )
 
-                result = await client.send_trigger(sample_trigger_payload)
+                with patch("core.retry.asyncio.sleep", new=AsyncMock()):
+                    result = await client.send_trigger(sample_trigger_payload)
 
                 assert result is False
         finally:
@@ -420,9 +421,73 @@ class TestHTTPTriggers:
                     exception=aiohttp.ClientError("Network error")
                 )
 
-                result = await client.send_trigger(sample_trigger_payload)
+                with patch("core.retry.asyncio.sleep", new=AsyncMock()):
+                    result = await client.send_trigger(sample_trigger_payload)
 
                 assert result is False
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_send_trigger_retries_rate_limit_until_success(
+        self, sample_trigger_payload
+    ):
+        """A 429 burst must outlast the backend's per-minute token bucket.
+
+        The backend allows 120 triggers per minute (burst 120, refill 2/s), so
+        a retry budget of three attempts over ~3 seconds cannot recover.
+        """
+        client = ServerClient(
+            server_url="http://test-server",
+            device_key="test-key",
+            device_id="test-device"
+        )
+
+        try:
+            with aioresponses() as m:
+                m.post(
+                    "http://test-server/control/app/trigger/new",
+                    status=429,
+                    repeat=6
+                )
+                m.post(
+                    "http://test-server/control/app/trigger/new",
+                    status=200,
+                    payload={"response": sample_trigger_payload.id}
+                )
+
+                with patch("core.retry.asyncio.sleep", new=AsyncMock()) as sleep:
+                    result = await client.send_trigger(sample_trigger_payload)
+
+                assert result is True
+                assert sleep.await_count == 6
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_send_trigger_gives_up_after_rate_limit_budget(
+        self, sample_trigger_payload
+    ):
+        """When the rate limit never clears, triggers fail after the full budget."""
+        client = ServerClient(
+            server_url="http://test-server",
+            device_key="test-key",
+            device_id="test-device"
+        )
+
+        try:
+            with aioresponses() as m:
+                m.post(
+                    "http://test-server/control/app/trigger/new",
+                    status=429,
+                    repeat=8
+                )
+
+                with patch("core.retry.asyncio.sleep", new=AsyncMock()) as sleep:
+                    result = await client.send_trigger(sample_trigger_payload)
+
+                assert result is False
+                assert sleep.await_count == 7
         finally:
             await client.close()
 
