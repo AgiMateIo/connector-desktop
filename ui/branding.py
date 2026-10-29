@@ -681,6 +681,13 @@ def stylesheet(theme: Theme) -> str:
         font-family: {_family_stack(mono=True)};
         font-size: {Type.SMALL_PX}px;
     }}
+    QTextEdit[role="config"] {{
+        /* The plugin card opens this editor on demand. A sheet's min-height
+           overrides QWidget::setMinimumHeight, so the generic field rule
+           above would otherwise pin the editor to one line however tall the
+           widget asks to be — the height has to be stated here. */
+        min-height: 320px;
+    }}
 
     /* The drop-down and its arrow are left to the widget style: styling the
        sub-control makes Qt draw it, and it then draws no arrow unless one is

@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QFrame,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QMetaObject, QPoint, Qt, Signal, Slot
 
 from urllib.parse import urlparse
 
@@ -643,13 +643,26 @@ class SettingsWindow(QDialog):
 
 
 class PluginConfigWidget(QGroupBox):
-    """Widget for configuring a single plugin."""
+    """Widget for configuring a single plugin.
+
+    Collapsed is the resting state: the page is a list of plugins first, and
+    the raw JSON is an advanced surface. An editor that is always open used to
+    be squeezed by the scroll layout down to its minimum — one line — which
+    read as an empty config. Collapsed, the card is a row; expanded, the
+    editor's role-scoped height forces the page to scroll instead of shrinking
+    it.
+
+    The height is a stylesheet rule, not `setMinimumHeight`: a sheet's
+    min-height overrides the widget property, so the generic field rule would
+    win and pin the editor back to one line.
+    """
 
     def __init__(self, plugin_id: str, plugin_name: str, config_path: Path):
         super().__init__(plugin_name)
         self.plugin_id = plugin_id
         self.config_path = config_path
         self._config: dict = {}
+        self._expanded = False
 
         self._setup_ui()
         self._load_config()
@@ -658,16 +671,79 @@ class PluginConfigWidget(QGroupBox):
         """Set up the UI."""
         layout = QVBoxLayout(self)
 
+        header = QHBoxLayout()
+        header.setSpacing(10)
+
         # Enabled checkbox
         self.enabled_check = QCheckBox("Enabled")
-        layout.addWidget(self.enabled_check)
+        header.addWidget(self.enabled_check)
+        header.addStretch()
 
-        # Config editor
+        # What the Configure button opens, said in one line while collapsed.
+        self.summary_label = QLabel()
+        branding.caption(self.summary_label)
+        header.addWidget(self.summary_label)
+
+        self.configure_btn = QPushButton("Configure")
+        self.configure_btn.clicked.connect(self._toggle_config)
+        header.addWidget(self.configure_btn)
+
+        layout.addLayout(header)
+
+        # Config editor — hidden until asked for.
         self.config_edit = QTextEdit()
-        self.config_edit.setMaximumHeight(110)
+        self.config_edit.setProperty("role", "config")
         branding.mono(self.config_edit)
         self.config_edit.setPlaceholderText("Plugin configuration (JSON)")
+        self.config_edit.setVisible(False)
+        self.config_edit.textChanged.connect(self._update_summary)
         layout.addWidget(self.config_edit)
+
+    def _toggle_config(self) -> None:
+        """Show or hide the JSON editor, giving it the focus when it opens."""
+        self._expanded = not self._expanded
+        self.config_edit.setVisible(self._expanded)
+        self.configure_btn.setText("Hide" if self._expanded else "Configure")
+        if self._expanded:
+            self.config_edit.setFocus()
+            # The page's layout has not recomputed the grown card yet, so the
+            # scroll has to wait a turn. A queued slot, not a timer: Qt drops
+            # it if the window is closed before it runs.
+            QMetaObject.invokeMethod(
+                self, "_reveal_editor", Qt.ConnectionType.QueuedConnection
+            )
+
+    @Slot()
+    def _reveal_editor(self) -> None:
+        """Scroll the page to the opened editor instead of leaving it below
+        the fold — the last card has no room under it.
+
+        `ensureVisible` rather than `ensureWidgetVisible`: the latter is a
+        no-op for a widget nested this deep, while a point in the content's
+        coordinates scrolls reliably.
+        """
+        scroll = self.parentWidget()
+        while scroll is not None and not isinstance(scroll, QScrollArea):
+            scroll = scroll.parentWidget()
+        if scroll is None or scroll.widget() is None:
+            return
+
+        bottom = self.config_edit.mapTo(
+            scroll.widget(), QPoint(0, self.config_edit.height())
+        )
+        scroll.ensureVisible(bottom.x(), bottom.y(), 0, 12)
+
+    def _update_summary(self) -> None:
+        """Keep the collapsed row honest about what the editor holds."""
+        text = self.config_edit.toPlainText()
+        if not text.strip():
+            self.summary_label.setText("No configuration yet")
+            return
+
+        lines = len(text.splitlines())
+        self.summary_label.setText(
+            f"Configuration · {lines} line{'s' if lines != 1 else ''}"
+        )
 
     def _load_config(self) -> None:
         """Load plugin configuration."""
@@ -680,6 +756,10 @@ class PluginConfigWidget(QGroupBox):
                 self.config_edit.setPlainText(json.dumps(self._config, indent=2, ensure_ascii=False))
             except Exception as e:
                 logger.error(f"Failed to load plugin config {self.config_path}: {e}")
+                self.summary_label.setText("Configuration could not be loaded")
+                return
+
+        self._update_summary()
 
     def save_config(self) -> None:
         """Save plugin configuration."""

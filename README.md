@@ -10,7 +10,7 @@ Cross-platform system tray agent with plugin architecture for triggers and tools
 - 🌐 **Server Integration** — HTTP triggers and WebSocket tools via Centrifugo
 - 🎯 **System Tray** — Background agent with tray icon
 - 🔄 **Robust Error Handling** — Automatic retry with exponential backoff
-- ✅ **Well Tested** — 572 tests with 97% coverage on core components
+- ✅ **Well Tested** — 581 tests with 97% coverage on core components
 - 📦 **Bundled Apps** — Single executable with PyInstaller
 
 ## Architecture
@@ -69,7 +69,7 @@ uv sync
 
 ### Running Tests
 
-The project uses pytest with comprehensive test coverage (572 tests).
+The project uses pytest with comprehensive test coverage (581 tests).
 
 #### Run All Tests
 

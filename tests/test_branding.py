@@ -232,6 +232,17 @@ class TestStylesheet:
         assert "border-bottom: 2px solid transparent;" in base
         assert "border-bottom:" not in selected
 
+    def test_the_plugin_config_editor_holds_more_than_one_line(self, branding):
+        # The collapsed plugin card opens this editor on demand. A sheet's
+        # min-height overrides setMinimumHeight, so the height must be stated
+        # here or the generic field rule pins the editor to a single line.
+        rule = _rule_block(
+            branding.stylesheet(branding.DARK), 'QTextEdit[role="config"]'
+        )
+        height = int(rule.split("min-height:")[1].split("px")[0].strip())
+
+        assert height >= 300
+
     def test_group_box_title_clears_the_card_border(self, branding):
         # Qt clears the title's rect out of the frame it draws, so a title
         # that dips into the border punches a gap the width of the heading.
