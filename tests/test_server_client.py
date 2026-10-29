@@ -9,6 +9,7 @@ from core.server_client import (
     ToolCallHandler,
     ServerClient,
 )
+from core.event_bus import EventBus, Topics
 from core.models import TriggerPayload, ToolTask
 
 
@@ -952,6 +953,97 @@ class TestWebSocketConnection:
         assert client._connected is False
 
 
+class TestRelinkOnForbidden:
+    """A 403 from the token endpoint means the device link is gone."""
+
+    TOKEN_URL = "http://test-server/control/app/centrifugo/token"
+
+    @pytest.mark.asyncio
+    async def test_403_publishes_relink_required(self):
+        """The client asks the application to re-link instead of looping."""
+        event_bus = EventBus()
+        received = []
+        event_bus.subscribe(Topics.SERVER_RELINK_REQUIRED, received.append)
+        client = ServerClient(
+            server_url="http://test-server",
+            device_key="test-key",
+            device_id="test-device",
+            event_bus=event_bus,
+        )
+        client._should_reconnect = True
+
+        try:
+            with aioresponses() as m:
+                m.post(
+                    self.TOKEN_URL,
+                    status=403,
+                    payload={"error": {"message": "Device is not linked"}},
+                )
+
+                result = await client._fetch_centrifugo_tokens()
+
+            assert result is False
+            assert received == [{"reason": "device_not_linked"}]
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_403_after_explicit_disconnect_does_not_publish(self):
+        """A user-initiated disconnect must not be undone by a late 403."""
+        event_bus = EventBus()
+        received = []
+        event_bus.subscribe(Topics.SERVER_RELINK_REQUIRED, received.append)
+        client = ServerClient(
+            server_url="http://test-server",
+            device_key="test-key",
+            device_id="test-device",
+            event_bus=event_bus,
+        )
+        client._should_reconnect = False
+
+        try:
+            with aioresponses() as m:
+                m.post(
+                    self.TOKEN_URL,
+                    status=403,
+                    payload={"error": {"message": "Device is not linked"}},
+                )
+
+                result = await client._fetch_centrifugo_tokens()
+
+            assert result is False
+            assert received == []
+        finally:
+            await client.close()
+
+    @pytest.mark.asyncio
+    async def test_connect_cancels_scheduled_reconnect(self):
+        """An explicit connect supersedes a pending reconnect task."""
+        client = ServerClient(
+            server_url="http://test-server",
+            device_key="test-key",
+            device_id="test-device",
+            reconnect_interval=60000,
+        )
+        client._should_reconnect = True
+        client._schedule_reconnect()
+        pending = client._reconnect_task
+        assert pending is not None
+
+        client._fetch_centrifugo_tokens = AsyncMock(return_value=False)
+
+        try:
+            with patch.object(client, "_schedule_reconnect"):
+                result = await client.connect()
+
+            assert result is False
+            await asyncio.sleep(0)
+            assert pending.cancelled()
+            assert client._reconnect_task is None
+        finally:
+            await client.close()
+
+
 class TestReconnection:
     """Test cases for reconnection logic."""
 
@@ -1036,6 +1128,41 @@ class TestReconnection:
 
         client._reconnect_task.cancel()
         await asyncio.sleep(0.01)
+
+    @pytest.mark.asyncio
+    async def test_concurrent_connects_are_serialized(self):
+        """Two connect() calls must not run side by side and build two clients.
+
+        A re-link recovery can call connect() while a scheduled reconnect is
+        already starting; interleaved connects would tear down each other's
+        client and leave two auto-reconnecting copies behind.
+        """
+        client = ServerClient(
+            server_url="http://test",
+            device_key="key",
+            device_id="device"
+        )
+
+        active = 0
+        peak = 0
+
+        async def fetch_tokens():
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+            return False
+
+        client._fetch_centrifugo_tokens = fetch_tokens
+
+        with patch.object(client, "_schedule_reconnect"):
+            first = asyncio.create_task(client.connect())
+            await asyncio.sleep(0)
+            second = asyncio.create_task(client.connect())
+            await asyncio.gather(first, second)
+
+        assert peak == 1
 
     @pytest.mark.asyncio
     async def test_schedule_reconnect_creates_task(self):

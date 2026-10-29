@@ -23,6 +23,7 @@ class Topics:
     SERVER_CONNECTED = "server.connected"
     SERVER_DISCONNECTED = "server.disconnected"
     SERVER_ERROR = "server.error"
+    SERVER_RELINK_REQUIRED = "server.relink.required"
 
     # UI connection control events
     UI_CONNECT_REQUESTED = "ui.connect.requested"

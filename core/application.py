@@ -68,6 +68,7 @@ class Application:
         self._background_tasks: set[asyncio.Task] = set()
         self._settings_window: SettingsWindow | None = None
         self._seen_tool_calls: OrderedDict[str, None] = OrderedDict()
+        self._relink_task: asyncio.Task | None = None
 
         # Subscribe to events
         self._subscribe_to_events()
@@ -89,6 +90,7 @@ class Application:
         self.event_bus.subscribe(Topics.SERVER_CONNECTED, self._handle_server_connected)
         self.event_bus.subscribe(Topics.SERVER_DISCONNECTED, self._handle_server_disconnected)
         self.event_bus.subscribe(Topics.SERVER_ERROR, self._handle_server_error)
+        self.event_bus.subscribe(Topics.SERVER_RELINK_REQUIRED, self._handle_relink_required)
 
         # UI events
         self.event_bus.subscribe(Topics.UI_QUIT_REQUESTED, self._handle_quit_request)
@@ -390,6 +392,35 @@ class Application:
 
         logger.info(f"Plugin '{plugin_id}' capabilities changed, re-linking device")
         self._create_task(self._link_device())
+
+    def _handle_relink_required(self, data: dict | None) -> None:
+        """Re-declare the device link after the server rejected our tokens (403).
+
+        The token endpoint only refuses a device the server no longer has
+        linked, so retrying connect() without a fresh link cannot recover.
+        """
+        backend_enabled = self.config_manager.get("backend", "enabled") == "enabled"
+        device_key = self.config_manager.get("device_key", "")
+        if not backend_enabled or not device_key:
+            return
+
+        if self._relink_task and not self._relink_task.done():
+            return
+
+        reason = (
+            data.get("reason", "relink_required")
+            if isinstance(data, dict)
+            else "relink_required"
+        )
+        logger.info(f"Server requested re-link ({reason}); re-declaring device")
+        self._relink_task = self._create_task(self._relink_and_connect())
+
+    async def _relink_and_connect(self) -> None:
+        """Run the full link-then-connect flow as the 403 recovery path."""
+        try:
+            await self._connect_with_linking()
+        finally:
+            self._relink_task = None
 
     async def _connect_with_linking(self) -> None:
         """Connect to server: link device first, then connect to Centrifugo.

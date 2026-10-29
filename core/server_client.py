@@ -145,6 +145,7 @@ class ServerClient:
         self._connected = False
         self._tool_call_handlers: list[Callable[[ToolTask], None]] = []
         self._reconnect_task: asyncio.Task | None = None
+        self._connect_lock = asyncio.Lock()
         self._should_reconnect = False
         self._reconnect_attempts = 0
 
@@ -511,6 +512,7 @@ class ServerClient:
                         f"Centrifugo token request forbidden (403): {error_msg}. "
                         "Device may not be linked — re-linking may be required."
                     )
+                    self._request_relink()
                     return False
                 else:
                     body = await response.text()
@@ -520,6 +522,21 @@ class ServerClient:
         except Exception as e:
             logger.error(f"Error fetching Centrifugo tokens: {e}")
             return False
+
+    def _request_relink(self) -> None:
+        """Ask the application to re-declare the device link.
+
+        A 403 from the token endpoint means the server no longer knows this
+        device (unlinked, re-keyed, or a changed device id). Retrying
+        connect() alone can never recover; only a fresh /registration/link can.
+        """
+        if not self._should_reconnect or self._event_bus is None:
+            return
+
+        from .event_bus import Topics
+        self._event_bus.publish(
+            Topics.SERVER_RELINK_REQUIRED, {"reason": "device_not_linked"}
+        )
 
     async def _get_connection_token(self) -> str:
         """Token provider for Centrifugo connection.
@@ -610,12 +627,24 @@ class ServerClient:
         """
         Connect to the WebSocket server and subscribe to tools channel.
 
+        Serialized: a re-link recovery and a scheduled reconnect can race,
+        and interleaved connects would tear down each other's client.
+
         Returns:
             True if connected successfully, False otherwise.
         """
+        async with self._connect_lock:
+            return await self._connect_locked()
+
+    async def _connect_locked(self) -> bool:
+        """Connect implementation; the caller must hold ``_connect_lock``."""
         if not self._server_url or not self._device_key:
             logger.warning("Server URL or device key not configured, skipping connection")
             return False
+
+        # An explicit connect supersedes a pending retry; otherwise both
+        # paths would race and tear down each other's freshly created client.
+        self.cancel_pending_reconnect()
 
         # Tear down any previous client before creating a new one — an old
         # client left behind keeps auto-reconnecting in parallel and every
@@ -705,6 +734,12 @@ class ServerClient:
         self._connection_token = None
         self._subscription_token = None
         self._channel = None
+
+    def cancel_pending_reconnect(self) -> None:
+        """Cancel a scheduled reconnect, e.g. when an explicit connect runs."""
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
+        self._reconnect_task = None
 
     def _schedule_reconnect(self) -> None:
         """Schedule a reconnection attempt with exponential backoff."""

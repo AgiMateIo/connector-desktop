@@ -610,6 +610,103 @@ class TestApplicationServerReconnect:
             mock_new_client.connect.assert_called_once()
 
 
+class TestRelinkOnForbidden:
+    """Re-link the device when the server says the link is gone."""
+
+    @pytest.mark.asyncio
+    async def test_relink_required_relinks_then_connects(self, mock_dependencies):
+        """Recovery is a fresh link, not another token request."""
+        mock_dependencies["config_manager"].get.side_effect = lambda key, default=None: {
+            "backend": "enabled",
+            "device_key": "test-api-key",
+        }.get(key, default)
+        application = Application(**mock_dependencies)
+
+        await application._relink_and_connect()
+
+        mock_dependencies["server_client"].link_device.assert_awaited_once()
+        mock_dependencies["server_client"].connect.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_relink_required_link_failure_does_not_connect(self, mock_dependencies):
+        """A failed link leaves the app disconnected rather than retrying tokens."""
+        mock_dependencies["config_manager"].get.side_effect = lambda key, default=None: {
+            "backend": "enabled",
+            "device_key": "test-api-key",
+        }.get(key, default)
+        mock_dependencies["server_client"].link_device = AsyncMock(return_value=False)
+        application = Application(**mock_dependencies)
+
+        await application._relink_and_connect()
+
+        mock_dependencies["server_client"].link_device.assert_awaited_once()
+        mock_dependencies["server_client"].connect.assert_not_called()
+
+    def test_relink_required_event_schedules_recovery(self, mock_dependencies):
+        """The event bus path starts the recovery task."""
+        mock_dependencies["config_manager"].get.side_effect = lambda key, default=None: {
+            "backend": "enabled",
+            "device_key": "test-api-key",
+        }.get(key, default)
+        application = Application(**mock_dependencies)
+
+        with patch.object(application, "_create_task") as create_task_mock:
+            application.event_bus.publish(
+                Topics.SERVER_RELINK_REQUIRED, {"reason": "device_not_linked"}
+            )
+
+            create_task_mock.assert_called_once()
+            # Close the un-awaited coroutine to avoid warnings
+            create_task_mock.call_args[0][0].close()
+
+    def test_relink_required_ignores_duplicate_while_running(self, mock_dependencies):
+        """Repeated 403s must not stack link/connect tasks."""
+        mock_dependencies["config_manager"].get.side_effect = lambda key, default=None: {
+            "backend": "enabled",
+            "device_key": "test-api-key",
+        }.get(key, default)
+        application = Application(**mock_dependencies)
+        application._relink_task = MagicMock()
+        application._relink_task.done.return_value = False
+
+        with patch.object(application, "_create_task") as create_task_mock:
+            application.event_bus.publish(
+                Topics.SERVER_RELINK_REQUIRED, {"reason": "device_not_linked"}
+            )
+
+            create_task_mock.assert_not_called()
+
+    def test_relink_required_skipped_when_backend_disabled(self, mock_dependencies):
+        """A user who turned the backend off must not be reconnected."""
+        mock_dependencies["config_manager"].get.side_effect = lambda key, default=None: {
+            "backend": "disabled",
+            "device_key": "test-api-key",
+        }.get(key, default)
+        application = Application(**mock_dependencies)
+
+        with patch.object(application, "_create_task") as create_task_mock:
+            application.event_bus.publish(
+                Topics.SERVER_RELINK_REQUIRED, {"reason": "device_not_linked"}
+            )
+
+            create_task_mock.assert_not_called()
+
+    def test_relink_required_skipped_without_device_key(self, mock_dependencies):
+        """There is nothing to re-link with no app key configured."""
+        mock_dependencies["config_manager"].get.side_effect = lambda key, default=None: {
+            "backend": "enabled",
+            "device_key": "",
+        }.get(key, default)
+        application = Application(**mock_dependencies)
+
+        with patch.object(application, "_create_task") as create_task_mock:
+            application.event_bus.publish(
+                Topics.SERVER_RELINK_REQUIRED, {"reason": "device_not_linked"}
+            )
+
+            create_task_mock.assert_not_called()
+
+
 class TestApplicationConnectionStatus:
     """Tests for Application connection status handling."""
 
