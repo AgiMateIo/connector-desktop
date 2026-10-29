@@ -584,30 +584,30 @@ def stylesheet(theme: Theme) -> str:
         border: none;
         border-top: 1px solid {theme.border};
         background: transparent;
-        top: -1px;
     }}
     QTabBar::tab {{
+        /* Navigation, not a surface. A filled tab claimed the same role as a
+           card, so white meant two different levels at once; and it claimed
+           to merge into the pane, which is transparent, so the tab hung above
+           the ground with nothing to merge into. The selected tab is told
+           apart by the accent underline and the foreground ink instead, and
+           white keeps its one meaning: a card. */
         background: transparent;
         color: {theme.muted};
-        padding: 7px 14px;
-        border: 1px solid transparent;
-        border-top-left-radius: {Radius.CONTROL}px;
-        border-top-right-radius: {Radius.CONTROL}px;
+        padding: 8px 2px;
+        margin-right: 20px;
+        border: none;
+        /* Stated in every state so the underline cannot change the tab's
+           height and the strip does not shift when the selection moves. */
+        border-bottom: 2px solid transparent;
         font-weight: {Type.WEIGHT_MEDIUM};
-    }}
-    QTabBar::tab:!selected {{
-        /* Carries the pane's top border across the strip: without it the line
-           starts abruptly where the last tab ends. */
-        border-bottom-color: {theme.border};
     }}
     QTabBar::tab:hover {{
         color: {theme.foreground};
     }}
     QTabBar::tab:selected {{
-        background-color: {theme.surface};
         color: {theme.foreground};
-        border-color: {theme.border};
-        border-bottom-color: {theme.surface};
+        border-bottom-color: {theme.accent};
     }}
 
     /* ---- controls ---- */

@@ -211,6 +211,27 @@ class TestStylesheet:
         assert "border-top:" in pane
         assert "border-radius" not in pane
 
+    def test_the_selected_tab_is_navigation_not_a_surface(self, branding):
+        # A tab filled like a card gave one role two meanings: "selected tab"
+        # and "card". It also claimed to merge into the pane, which is
+        # transparent — so the white tab hung above the ground with nothing to
+        # merge into. Navigation is marked by an accent underline instead.
+        tab = _rule_block(branding.stylesheet(branding.DARK), "QTabBar::tab:selected")
+
+        assert branding.DARK.surface not in tab
+        assert f"border-bottom-color: {branding.DARK.accent};" in tab
+
+    def test_the_tab_underline_does_not_move_the_strip(self, branding):
+        # The underline is the only mark of the selected tab, so it must not
+        # change the tab's height: every state carries the same border and
+        # selection only recolours it.
+        sheet = branding.stylesheet(branding.DARK)
+        base = _rule_block(sheet, "QTabBar::tab {")
+        selected = _rule_block(sheet, "QTabBar::tab:selected")
+
+        assert "border-bottom: 2px solid transparent;" in base
+        assert "border-bottom:" not in selected
+
     def test_group_box_title_clears_the_card_border(self, branding):
         # Qt clears the title's rect out of the frame it draws, so a title
         # that dips into the border punches a gap the width of the heading.
