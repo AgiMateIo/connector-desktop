@@ -29,10 +29,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _hide_from_dock() -> None:
+    """Run as a macOS menu-bar agent: no Dock icon and no Cmd-Tab entry.
+
+    A bundled .app carries LSUIElement in its Info.plist. A source run has no
+    plist, so set the activation policy at runtime. QApplication resets it to
+    Regular during construction, so call this *after* QApplication exists.
+    """
+    if sys.platform != "darwin" or getattr(sys, "frozen", False):
+        return
+
+    try:
+        from AppKit import (
+            NSApplication,
+            NSApplicationActivationPolicyAccessory,
+        )
+        NSApplication.sharedApplication().setActivationPolicy_(
+            NSApplicationActivationPolicyAccessory
+        )
+        logger.info("macOS activation policy: accessory (menu bar only)")
+    except Exception as e:
+        logger.warning(f"Could not hide Dock icon: {e}")
+
+
 def main():
     """Main entry point."""
     # Create Qt application
     app = QApplication(sys.argv)
+    _hide_from_dock()
     app.setApplicationName("Agimate Desktop")
     app.setOrganizationName("AgiMate")
     app.setQuitOnLastWindowClosed(False)
