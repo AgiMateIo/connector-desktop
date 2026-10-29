@@ -26,7 +26,7 @@ APP_SOURCE_ID = "desktop-agent"
 # The version the app reports to the backend, and the one the macOS bundle
 # carries — agimate_desktop.spec reads it from here so the two cannot drift.
 # pyproject.toml keeps its own copy because uv needs a literal; bump both.
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 
 # Default Configuration Values
 DEFAULT_SERVER_URL = "https://api.agimate.io"

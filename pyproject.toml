@@ -1,6 +1,6 @@
 [project]
 name = "agimate-connector-desktop"
-version = "0.3.0"
+version = "0.3.1"
 description = "Cross-platform system tray agent with plugin architecture"
 readme = "README.md"
 requires-python = ">=3.11"

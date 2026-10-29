@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.1] - 2026-10-29
+
+### Fixed
+- A 403 from the Centrifugo token endpoint now re-links the device instead of
+  retrying a link the server no longer has
+- Trigger sends retry across the backend's per-minute rate-limit window
+  instead of giving up after a few seconds
+- Running from source on macOS no longer shows a Dock icon or a Cmd-Tab entry
+
 ## [0.3.0] - 2026-08-28
 
 ### Added
