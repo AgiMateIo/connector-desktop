@@ -10,7 +10,7 @@ Cross-platform system tray agent with plugin architecture for triggers and tools
 - 🌐 **Server Integration** — HTTP triggers and WebSocket tools via Centrifugo
 - 🎯 **System Tray** — Background agent with tray icon
 - 🔄 **Robust Error Handling** — Automatic retry with exponential backoff
-- ✅ **Well Tested** — 504 tests with 97% coverage on core components
+- ✅ **Well Tested** — 570 tests with 97% coverage on core components
 - 📦 **Bundled Apps** — Single executable with PyInstaller
 
 ## Architecture
@@ -54,6 +54,9 @@ The application will:
 4. Connect to the server (if configured)
 5. Show system tray icon
 
+On macOS the agent is a menu-bar app: it has no Dock icon and does not appear
+in Cmd-Tab, whether launched from source or as a bundled `.app`.
+
 ## Development
 
 ### Setup Development Environment
@@ -66,7 +69,7 @@ uv sync
 
 ### Running Tests
 
-The project uses pytest with comprehensive test coverage (504 tests).
+The project uses pytest with comprehensive test coverage (570 tests).
 
 #### Run All Tests
 
@@ -175,7 +178,7 @@ agimate-desktop/
 │   └── tools/              # Tool plugins
 │       ├── show_notification/  # Notifications
 │       └── tts/            # Text-to-speech
-└── tests/                  # Comprehensive test suite (504 tests)
+└── tests/                  # Comprehensive test suite (570 tests)
     ├── conftest.py         # Shared fixtures
     ├── test_application.py # Application tests
     ├── test_di_container.py # DI container tests
@@ -406,6 +409,6 @@ For issues and questions, please use the GitHub issue tracker.
 - ✨ Protocol interfaces for type-safe contracts
 - ✨ Automatic retry with exponential backoff
 - ✨ Comprehensive config validation
-- ✨ 504 tests with 97% coverage on core
+- ✨ 570 tests with 97% coverage on core
 - 📚 Complete plugin documentation (PLUGINS.md)
 - 🔧 Improved error handling and logging
